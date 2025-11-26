@@ -15,8 +15,8 @@
 
 // ============= PINES =============
 // Sensor Ultrasónico
-const int TRIG_PIN = 12;
-const int ECHO_PIN = 13;
+const int TRIG_PIN = 13;
+const int ECHO_PIN = 12;
 
 // Motor (ajusta según tu driver/transistor)
 const int MOTOR_PIN = 9;  // Pin PWM
@@ -24,7 +24,7 @@ const int MOTOR_PIN = 9;  // Pin PWM
 // ============= PARÁMETROS DEL EXPERIMENTO =============
 const int PWM_ESCALON = 128;              // 50% de PWM (0-255)
 const unsigned long TIEMPO_INICIAL = 1000; // 2s antes del escalón
-const unsigned long TIEMPO_TOTAL = 7000;  // 12s total (2s + 10s de medición)
+const unsigned long TIEMPO_TOTAL = 11000;  // 12s total (2s + 10s de medición)
 const unsigned long SAMPLE_TIME = 50;      // Muestreo cada 50ms
 
 // ============= VARIABLES =============
