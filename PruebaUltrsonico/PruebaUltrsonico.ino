@@ -22,95 +22,104 @@ const int ECHO_PIN = 12;
 const int MOTOR_PIN = 9;  // Pin PWM
 
 // ============= PARÁMETROS DEL EXPERIMENTO =============
-const int PWM_ESCALON = 128;              // 50% de PWM (0-255)
-const unsigned long TIEMPO_INICIAL = 1000; // 2s antes del escalón
-const unsigned long TIEMPO_TOTAL = 11000;  // 12s total (2s + 10s de medición)
-const unsigned long SAMPLE_TIME = 50;      // Muestreo cada 50ms
+const int PWM_ESCALON = 128;              
+const unsigned long TIEMPO_INICIAL = 1000; 
+const unsigned long TIEMPO_TOTAL = 14000;  
+const unsigned long SAMPLE_TIME = 50;      
+
+// **NUEVO: Offset de calibración**
+const float OFFSET_CALIBRACION = 4.10;  // Distancia cuando puerta está en el borde
 
 // ============= VARIABLES =============
 unsigned long startTime = 0;
 unsigned long previousMillis = 0;
 bool escalon_aplicado = false;
 
+volatile unsigned long pulseStartTime = 0;
+volatile unsigned long pulseDuration = 0;
+volatile bool pulseReady = false;
+unsigned long lastTrigTime = 0;
+const unsigned long TRIG_COOLDOWN = 100;
+
 void setup() {
   Serial.begin(9600);
   
-  // Configurar pines
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
   pinMode(MOTOR_PIN, OUTPUT);
   
-  // Motor apagado inicialmente
   analogWrite(MOTOR_PIN, 0);
   
-  // Esperar un momento antes de empezar
-  delay(1000);
-  
-  // Imprimir encabezado CSV
   Serial.println("=== RESPUESTA AL ESCALON ===");
   Serial.println("PWM del escalon: " + String(PWM_ESCALON));
   Serial.println("Tiempo de muestreo: " + String(SAMPLE_TIME) + " ms");
+  Serial.println("Offset de calibracion: " + String(OFFSET_CALIBRACION) + " cm");
   Serial.println("----------------------------");
   Serial.println("Tiempo_ms,Posicion_cm,PWM");
   
-  // Iniciar cronómetro
   startTime = millis();
+  previousMillis = startTime;
 }
 
 void loop() {
   unsigned long currentMillis = millis();
   unsigned long tiempoTranscurrido = currentMillis - startTime;
   
-  // Verificar si llegamos al tiempo de aplicar el escalón
   if (!escalon_aplicado && tiempoTranscurrido >= TIEMPO_INICIAL) {
     analogWrite(MOTOR_PIN, PWM_ESCALON);
     escalon_aplicado = true;
   }
-  
-  // Tomar muestra cada SAMPLE_TIME
+
   if (currentMillis - previousMillis >= SAMPLE_TIME) {
     previousMillis = currentMillis;
+
+    // Leer posición del sensor y aplicar offset
+    float posicionRaw = readUltrasonic();
+    float posicionCalibrada = posicionRaw - OFFSET_CALIBRACION;
     
-    // Leer posición del sensor
-    float posicion = readUltrasonic();
-    
+    // Evitar valores negativos
+    if (posicionCalibrada < 0) {
+      posicionCalibrada = 0;
+    }
+
     // Imprimir datos en formato CSV
     Serial.print(tiempoTranscurrido);
     Serial.print(",");
-    Serial.print(posicion, 2);
+    Serial.print(posicionCalibrada, 2);
     Serial.print(",");
     Serial.println(escalon_aplicado ? PWM_ESCALON : 0);
   }
-  
-  // Detener después del tiempo total
+
   if (tiempoTranscurrido >= TIEMPO_TOTAL) {
-    analogWrite(MOTOR_PIN, 0); // Apagar motor
+    analogWrite(MOTOR_PIN, 0);
     Serial.println("=== FIN DEL EXPERIMENTO ===");
     Serial.println("Copie los datos y guárdelos en un archivo CSV");
-    while(1); // Detener programa
+    while(1);
   }
 }
 
 // ============= LEER SENSOR ULTRASÓNICO =============
 float readUltrasonic() {
-  // Limpiar trigger
-  digitalWrite(TRIG_PIN, LOW);
-  delayMicroseconds(2);
+  unsigned long currentMicros = micros();
   
-  // Enviar pulso
-  digitalWrite(TRIG_PIN, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(TRIG_PIN, LOW);
+  if (currentMicros - lastTrigTime >= TRIG_COOLDOWN * 1000) {
+    lastTrigTime = currentMicros;
+    
+    digitalWrite(TRIG_PIN, LOW);
+    digitalWrite(TRIG_PIN, HIGH);
+    digitalWrite(TRIG_PIN, LOW);
+    
+    long duration = pulseIn(ECHO_PIN, HIGH, 30000);
+    
+    if (duration > 0) {
+      pulseDuration = duration;
+    }
+  }
   
-  // Leer echo
-  long duration = pulseIn(ECHO_PIN, HIGH, 30000);
+  float distance = pulseDuration * 0.0343 / 2.0;
   
-  // Calcular distancia en cm
-  float distance = duration * 0.0343 / 2.0;
-  
-  // Validar lectura
-  if (duration == 0 || distance > 100) {
-    return 0; // Error en lectura
+  if (pulseDuration == 0 || distance > 100) {
+    return OFFSET_CALIBRACION; // Si hay error, retornar el offset (posición = 0)
   }
   
   return distance;
