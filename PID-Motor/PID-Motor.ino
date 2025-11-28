@@ -26,9 +26,14 @@ float output = 0;
 const float INTEGRAL_MAX = 200.0;
 const int PWM_MAX = 255;
 
-// Tiempo
+// Tiempos
 const unsigned long SAMPLE_TIME = 50;
 unsigned long lastSampleTime = 0;
+
+// Debounce (sin delay)
+unsigned long lastDebouncePID   = 0;
+unsigned long lastDebounceStart = 0;
+const unsigned long DEBOUNCE_MS = 50;
 
 // Estados
 bool pid_enabled   = false;
@@ -46,22 +51,25 @@ void setup() {
 
   analogWrite(MOTOR_PIN, 0);
 
-  delay(200);
   posicion_actual = readDistanceCM();
 
-  Serial.println("=== PID 1 sentido ===");
+  Serial.println("=== PID 1 sentido — Sistema listo ===");
   Serial.print("Posición inicial: ");
   Serial.println(posicion_actual);
 }
 
 void loop() {
 
-  // --- BOTÓN START ---
+  //---------------------------------------------------------------------------
+  // BOTÓN START (sin delay)
+  //---------------------------------------------------------------------------
   static bool last_start = HIGH;
   bool start_btn = digitalRead(BUTTON_START);
 
-  if (start_btn == LOW && last_start == HIGH) {
-    delay(50);
+  if (start_btn == LOW && last_start == HIGH && millis() - lastDebounceStart > DEBOUNCE_MS) {
+
+    lastDebounceStart = millis();
+
     motor_running = !motor_running;
     pid_enabled = false;
     integral = 0;
@@ -77,18 +85,24 @@ void loop() {
   last_start = start_btn;
 
 
-  // --- BOTÓN PID ---
+
+  //---------------------------------------------------------------------------
+  // BOTÓN PID (sin delay)
+  //---------------------------------------------------------------------------
   static bool last_button = HIGH;
   bool b = digitalRead(BUTTON_PID);
 
-  if (b == LOW && last_button == HIGH) {
-    delay(50);
+  if (b == LOW && last_button == HIGH && millis() - lastDebouncePID > DEBOUNCE_MS) {
+
+    lastDebouncePID = millis();
 
     if (motor_running) {
       pid_enabled = !pid_enabled;
 
       if (pid_enabled) {
         Serial.println("\n>>> PID ACTIVADO <<<");
+        integral = 0;
+        last_error = error;   // sincroniza el PID para no generar picos
       } else {
         Serial.println("\n>>> PID DESACTIVADO <<<");
         integral = 0;
@@ -101,17 +115,20 @@ void loop() {
   last_button = b;
 
 
-  // Lectura del sensor
+
+  //---------------------------------------------------------------------------
+  // LECTURA DEL SENSOR
+  //---------------------------------------------------------------------------
   posicion_actual = readDistanceCM();
 
   unsigned long now = millis();
   if (now - lastSampleTime >= SAMPLE_TIME) {
+
     lastSampleTime = now;
 
-    // Calcular error
     error = posicion_actual - setpoint;
 
-    // ----------- 🚨 PARO AUTOMÁTICO AL LLEGAR AL SETPOINT -----------
+    // PARO AUTOMÁTICO AL LLEGAR
     if (motor_running && error <= 0) {
       motor_running = false;
       pid_enabled = false;
@@ -120,7 +137,6 @@ void loop() {
       printStatus();
       return;
     }
-    // ------------------------------------------------------------------
 
     if (!motor_running) {
       analogWrite(MOTOR_PIN, 0);
@@ -128,7 +144,10 @@ void loop() {
       return;
     }
 
+
+    //---------------------------------------------------------------------------
     // MODO PID
+    //---------------------------------------------------------------------------
     if (pid_enabled && error > 0) {
 
       float dt = SAMPLE_TIME / 1000.0;
@@ -154,7 +173,10 @@ void loop() {
       analogWrite(MOTOR_PIN, (int)output);
     }
 
-    // MODO SIN PID → PWM máximo
+
+    //---------------------------------------------------------------------------
+    // MODO SIN PID — PWM máximo
+    //---------------------------------------------------------------------------
     else if (!pid_enabled && motor_running) {
       output = 255;
       analogWrite(MOTOR_PIN, 255);
@@ -164,7 +186,11 @@ void loop() {
   }
 }
 
-// === Sensor ultrasound ===
+
+
+// ============================================================================
+// SENSOR ULTRASONIDO
+// ============================================================================
 float readDistanceCM() {
   digitalWrite(TRIG_PIN, LOW);
   delayMicroseconds(2);
@@ -183,6 +209,11 @@ float readDistanceCM() {
   return dist;
 }
 
+
+
+// ============================================================================
+// DEBUG
+// ============================================================================
 void printStatus() {
   Serial.print("RUN:");
   Serial.print(motor_running ? "YES" : "NO");
