@@ -22,7 +22,7 @@ const int ECHO_PIN = 12;
 const int MOTOR_PIN = 9;  // Pin PWM
 
 // ============= PARÁMETROS DEL EXPERIMENTO =============
-const int PWM_ESCALON = 128;              
+const int PWM_ESCALON = 250;              
 const unsigned long TIEMPO_INICIAL = 1000; 
 const unsigned long TIEMPO_TOTAL = 14000;  
 const unsigned long SAMPLE_TIME = 50;      
