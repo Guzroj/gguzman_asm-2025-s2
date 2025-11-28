@@ -4,15 +4,17 @@
 const int TRIG_PIN   = 13;
 const int ECHO_PIN   = 12;
 const int MOTOR_PIN  = 9;
-const int BUTTON_PIN = 2;
+
+const int BUTTON_PID   = 2;  // Activa/desactiva PID
+const int BUTTON_START = 3;  // Inicia/detiene motor
 
 // PID
 float Kp = 5.0;
 float Ki = 0.8;
 float Kd = 0.3;
 
-float setpoint = 25.0;      // distancia deseada en cm
-float posicion_actual = 0;  // lectura del sensor
+float setpoint = 6.0;      
+float posicion_actual = 0;  
 
 float error = 0;
 float last_error = 0;
@@ -22,73 +24,120 @@ float output = 0;
 
 // Límites
 const float INTEGRAL_MAX = 200.0;
-const int   PWM_MAX = 255;
+const int PWM_MAX = 255;
 
-// Tiempo de muestreo
-const unsigned long SAMPLE_TIME = 50; // 50 ms
+// Tiempo
+const unsigned long SAMPLE_TIME = 50;
 unsigned long lastSampleTime = 0;
 
-// Estado
-bool pid_enabled = false;
+// Estados
+bool pid_enabled   = false;
+bool motor_running = false;
 
 void setup() {
   Serial.begin(9600);
 
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
-
   pinMode(MOTOR_PIN, OUTPUT);
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
+
+  pinMode(BUTTON_PID,   INPUT_PULLUP);
+  pinMode(BUTTON_START, INPUT_PULLUP);
 
   analogWrite(MOTOR_PIN, 0);
 
-  // Leer posición inicial
   delay(200);
   posicion_actual = readDistanceCM();
-  Serial.println("=== PID 1 sentido (siempre hacia el sensor) ===");
+
+  Serial.println("=== PID 1 sentido ===");
   Serial.print("Posición inicial: ");
-  Serial.print(posicion_actual);
-  Serial.println(" cm");
+  Serial.println(posicion_actual);
 }
 
 void loop() {
-  // Botón: toggle PID
-  static bool last_button = HIGH;
-  bool b = digitalRead(BUTTON_PIN);
-  if (b == LOW && last_button == HIGH) {
-    delay(50); // debounce simple
-    pid_enabled = !pid_enabled;
-    if (pid_enabled) {
-      Serial.println("\n>>> PID ACTIVADO <<<");
+
+  // --- BOTÓN START ---
+  static bool last_start = HIGH;
+  bool start_btn = digitalRead(BUTTON_START);
+
+  if (start_btn == LOW && last_start == HIGH) {
+    delay(50);
+    motor_running = !motor_running;
+    pid_enabled = false;
+    integral = 0;
+    last_error = 0;
+
+    if (motor_running) {
+      Serial.println("\n>>> MOTOR INICIADO (SIN PID) <<<");
     } else {
-      Serial.println("\n>>> PID DESACTIVADO <<<");
+      Serial.println("\n>>> MOTOR DETENIDO <<<");
       analogWrite(MOTOR_PIN, 0);
-      integral = 0;
-      last_error = 0;
+    }
+  }
+  last_start = start_btn;
+
+
+  // --- BOTÓN PID ---
+  static bool last_button = HIGH;
+  bool b = digitalRead(BUTTON_PID);
+
+  if (b == LOW && last_button == HIGH) {
+    delay(50);
+
+    if (motor_running) {
+      pid_enabled = !pid_enabled;
+
+      if (pid_enabled) {
+        Serial.println("\n>>> PID ACTIVADO <<<");
+      } else {
+        Serial.println("\n>>> PID DESACTIVADO <<<");
+        integral = 0;
+        last_error = 0;
+      }
+    } else {
+      Serial.println("\n[WARN] Inicie el motor antes de activar PID.");
     }
   }
   last_button = b;
 
-  // Leer sensor siempre
+
+  // Lectura del sensor
   posicion_actual = readDistanceCM();
 
   unsigned long now = millis();
   if (now - lastSampleTime >= SAMPLE_TIME) {
     lastSampleTime = now;
 
-    // error definido PARA 1 SOLO SENTIDO:
-    // positivo = estoy más lejos que el setpoint -> hay que mover
+    // Calcular error
     error = posicion_actual - setpoint;
 
+    // ----------- 🚨 PARO AUTOMÁTICO AL LLEGAR AL SETPOINT -----------
+    if (motor_running && error <= 0) {
+      motor_running = false;
+      pid_enabled = false;
+      analogWrite(MOTOR_PIN, 0);
+      Serial.println("\n>>> LLEGÓ AL SETPOINT — MOTOR DETENIDO <<<");
+      printStatus();
+      return;
+    }
+    // ------------------------------------------------------------------
+
+    if (!motor_running) {
+      analogWrite(MOTOR_PIN, 0);
+      printStatus();
+      return;
+    }
+
+    // MODO PID
     if (pid_enabled && error > 0) {
-      // --- PID clásico ---
+
       float dt = SAMPLE_TIME / 1000.0;
 
       float P = Kp * error;
 
       integral += error * dt;
-      if (integral > INTEGRAL_MAX)  integral = INTEGRAL_MAX;
-      if (integral < 0)             integral = 0;  // no acumular si ya está muy cerca o pasándose
+      if (integral > INTEGRAL_MAX) integral = INTEGRAL_MAX;
+      if (integral < 0)            integral = 0;
 
       float I = Ki * integral;
 
@@ -97,60 +146,54 @@ void loop() {
 
       output = P + I + D;
 
-      // sólo valores positivos y dentro de 0..255
-      if (output < 0)      output = 0;
+      if (output < 0) output = 0;
       if (output > PWM_MAX) output = PWM_MAX;
 
       last_error = error;
 
-      // Aplicar PWM: SIEMPRE hacia el sensor
       analogWrite(MOTOR_PIN, (int)output);
-    } else {
-      // Ya llegó o PID apagado: motor off
-      output = 0;
-      analogWrite(MOTOR_PIN, 0);
-      if (!pid_enabled) {
-        integral = 0;
-        last_error = 0;
-      }
     }
 
-    // Monitoreo
+    // MODO SIN PID → PWM máximo
+    else if (!pid_enabled && motor_running) {
+      output = 255;
+      analogWrite(MOTOR_PIN, 255);
+    }
+
     printStatus();
   }
 }
 
-// === Lectura de distancia en cm (HC-SR04) ===
+// === Sensor ultrasound ===
 float readDistanceCM() {
   digitalWrite(TRIG_PIN, LOW);
   delayMicroseconds(2);
-
   digitalWrite(TRIG_PIN, HIGH);
   delayMicroseconds(10);
   digitalWrite(TRIG_PIN, LOW);
 
   long duration = pulseIn(ECHO_PIN, HIGH, 30000);
-  if (duration <= 0) return posicion_actual; // conservar valor anterior si falla
+  if (duration <= 0) return posicion_actual;
 
   float dist = duration * 0.0343 / 2.0;
 
-  // Limitar por seguridad (ajusta si tu carril es diferente)
   if (dist < 0) dist = 0;
   if (dist > 100) dist = 100;
 
   return dist;
 }
 
-// === Debug por Serial ===
 void printStatus() {
-  Serial.print("PID:");
-  Serial.print(pid_enabled ? "ON " : "OFF");
+  Serial.print("RUN:");
+  Serial.print(motor_running ? "YES" : "NO");
+  Serial.print(" | PID:");
+  Serial.print(pid_enabled ? "ON" : "OFF");
   Serial.print(" | SP:");
-  Serial.print(setpoint, 1);
-  Serial.print("cm | Pos:");
+  Serial.print(setpoint);
+  Serial.print(" cm | Pos:");
   Serial.print(posicion_actual, 1);
-  Serial.print("cm | Err:");
+  Serial.print(" cm | Err:");
   Serial.print(error, 1);
   Serial.print(" | PWM:");
-  Serial.println((int)output);
+  Serial.println(output);
 }
