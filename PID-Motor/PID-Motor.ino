@@ -5,21 +5,24 @@ const int TRIG_PIN   = 13;
 const int ECHO_PIN   = 12;
 
 // Pines L293D (Puente H)
-const int MOTOR_IN1  = 9;   // Control direcciÃ³n 1
-const int MOTOR_IN2  = 10;  // Control direcciÃ³n 2
+const int MOTOR_IN1  = 9;   // Control dirección 1
+const int MOTOR_IN2  = 10;  // Control dirección 2
 const int MOTOR_EN   = 11;  // Enable (PWM)
 
 // Botones
 const int BUTTON_PID      = 2;  // Activa/desactiva PID
 const int BUTTON_FORWARD  = 3;  // Motor adelante (alejar del sensor)
-const int BUTTON_BACKWARD = 4;  // Motor atrÃ¡s (acercar al sensor)
+const int BUTTON_BACKWARD = 4;  // Motor atrás (acercar al sensor)
 
 // PID
 float Kp = 5.0;
 float Ki = 0.8;
 float Kd = 0.3;
 
-float setpoint = 6.0;      
+float setpoint_forward = 4.0;   // Setpoint para ir ADELANTE (lejos del sensor)
+float setpoint_backward = 52.0;   // Setpoint para ir ATRÁS (cerca del sensor)
+float setpoint = 6.0;            // Setpoint activo actual
+
 float posicion_actual = 0;  
 
 float error = 0;
@@ -28,7 +31,7 @@ float integral = 0;
 float derivative = 0;
 float output = 0;
 
-// LÃ­mites
+// Límites
 const float INTEGRAL_MAX = 200.0;
 const int PWM_MAX = 255;
 
@@ -45,7 +48,7 @@ const unsigned long DEBOUNCE_MS = 50;
 // Estados
 bool pid_enabled   = false;
 bool motor_running = false;
-int motor_direction = 0;  // 0=parado, 1=adelante, -1=atrÃ¡s
+int motor_direction = 0;  // 0=parado, 1=adelante, -1=atrás
 
 void setup() {
   Serial.begin(9600);
@@ -65,16 +68,22 @@ void setup() {
 
   posicion_actual = readDistanceCM();
 
-  Serial.println("=== PID Bidireccional â€” Sistema listo ===");
-  Serial.print("PosiciÃ³n inicial: ");
+  Serial.println("=== PID Bidireccional — Sistema listo ===");
+  Serial.print("Posición inicial: ");
   Serial.print(posicion_actual);
+  Serial.println(" cm");
+  Serial.print("Setpoint ADELANTE: ");
+  Serial.print(setpoint_forward);
+  Serial.println(" cm");
+  Serial.print("Setpoint ATRÁS: ");
+  Serial.print(setpoint_backward);
   Serial.println(" cm");
 }
 
 void loop() {
 
   //---------------------------------------------------------------------------
-  // BOTÃ“N ADELANTE (alejar del sensor)
+  // BOTÓN ADELANTE (alejar del sensor)
   //---------------------------------------------------------------------------
   static bool last_forward = HIGH;
   bool forward_btn = digitalRead(BUTTON_FORWARD);
@@ -84,17 +93,26 @@ void loop() {
     
     lastDebounceForward = millis();
 
-    motor_running = !motor_running;
-    pid_enabled = false;
-    integral = 0;
-    last_error = 0;
-
-    if (motor_running) {
+    // Si está detenido O yendo en dirección contraria, cambia a ADELANTE
+    if (!motor_running || motor_direction == -1) {
+      motor_running = true;
       motor_direction = 1;
+      setpoint = setpoint_forward;
+      pid_enabled = false;  // Empieza sin PID
+      integral = 0;
+      last_error = 0;
+      
       Serial.println("\n>>> MOTOR ADELANTE (SIN PID) <<<");
+      Serial.print("Objetivo: ");
+      Serial.print(setpoint);
+      Serial.println(" cm");
       setMotorForward(255);
-    } else {
+    } 
+    // Si ya está yendo ADELANTE, lo detiene
+    else if (motor_direction == 1) {
+      motor_running = false;
       motor_direction = 0;
+      pid_enabled = false;
       Serial.println("\n>>> MOTOR DETENIDO <<<");
       stopMotor();
     }
@@ -103,7 +121,7 @@ void loop() {
 
 
   //---------------------------------------------------------------------------
-  // BOTÃ“N ATRÃS (acercar al sensor)
+  // BOTÓN ATRÁS (acercar al sensor)
   //---------------------------------------------------------------------------
   static bool last_backward = HIGH;
   bool backward_btn = digitalRead(BUTTON_BACKWARD);
@@ -113,17 +131,26 @@ void loop() {
     
     lastDebounceBackward = millis();
 
-    motor_running = !motor_running;
-    pid_enabled = false;
-    integral = 0;
-    last_error = 0;
-
-    if (motor_running) {
+    // Si está detenido O yendo en dirección contraria, cambia a ATRÁS
+    if (!motor_running || motor_direction == 1) {
+      motor_running = true;
       motor_direction = -1;
-      Serial.println("\n>>> MOTOR ATRÃS (SIN PID) <<<");
+      setpoint = setpoint_backward;
+      pid_enabled = false;  // Empieza sin PID
+      integral = 0;
+      last_error = 0;
+      
+      Serial.println("\n>>> MOTOR ATRÁS (SIN PID) <<<");
+      Serial.print("Objetivo: ");
+      Serial.print(setpoint);
+      Serial.println(" cm");
       setMotorBackward(255);
-    } else {
+    }
+    // Si ya está yendo ATRÁS, lo detiene
+    else if (motor_direction == -1) {
+      motor_running = false;
       motor_direction = 0;
+      pid_enabled = false;
       Serial.println("\n>>> MOTOR DETENIDO <<<");
       stopMotor();
     }
@@ -132,13 +159,12 @@ void loop() {
 
 
   //---------------------------------------------------------------------------
-  // BOTÃ“N PID
+  // BOTÓN PID
   //---------------------------------------------------------------------------
-  static bool last_pid = HIGH;
-  bool pid_btn = digitalRead(BUTTON_PID);
+  static bool last_button = HIGH;
+  bool b = digitalRead(BUTTON_PID);
 
-  if (pid_btn == LOW && last_pid == HIGH && 
-      millis() - lastDebouncePID > DEBOUNCE_MS) {
+  if (b == LOW && last_button == HIGH && millis() - lastDebouncePID > DEBOUNCE_MS) {
     
     lastDebouncePID = millis();
 
@@ -148,7 +174,7 @@ void loop() {
       if (pid_enabled) {
         Serial.println("\n>>> PID ACTIVADO <<<");
         integral = 0;
-        last_error = error;
+        last_error = error;   // sincroniza el PID para no generar picos
       } else {
         Serial.println("\n>>> PID DESACTIVADO <<<");
         integral = 0;
@@ -158,11 +184,11 @@ void loop() {
       Serial.println("\n[WARN] Inicie el motor antes de activar PID.");
     }
   }
-  last_pid = pid_btn;
+  last_button = b;
 
 
   //---------------------------------------------------------------------------
-  // LECTURA Y CONTROL
+  // LECTURA DEL SENSOR Y CONTROL
   //---------------------------------------------------------------------------
   posicion_actual = readDistanceCM();
 
@@ -171,17 +197,29 @@ void loop() {
     
     lastSampleTime = now;
 
-    error = posicion_actual - setpoint;
+    // CÁLCULO DEL ERROR SEGÚN DIRECCIÓN
+    if (motor_direction == -1) {
+      // Yendo ATRÁS (hacia el sensor): error = posición_actual - setpoint
+      // Si estoy a 52cm y quiero llegar a 6cm: error = 52 - 6 = 46 (positivo)
+      error = posicion_actual - setpoint;
+    } else if (motor_direction == 1) {
+      // Yendo ADELANTE (lejos del sensor): error = setpoint - posición_actual
+      // Si estoy a 6cm y quiero llegar a 50cm: error = 50 - 6 = 44 (positivo)
+      error = setpoint - posicion_actual;
+    } else {
+      error = 0;
+    }
 
-    // PARO AUTOMÃTICO AL LLEGAR (solo en modo atrÃ¡s hacia el sensor)
-    if (motor_running && motor_direction == -1 && error <= 0) {
-      motor_running = false;
-      pid_enabled = false;
-      motor_direction = 0;
-      stopMotor();
-      Serial.println("\n>>> LLEGÃ“ AL SETPOINT â€” MOTOR DETENIDO <<<");
-      printStatus();
-      return;
+    // -----------------------------------------------
+    // PARO AUTOMÁTICO SEGURO AL ALCANZAR EL SETPOINT
+    // -----------------------------------------------
+    const float TOLERANCIA = 2.0;  // cm
+
+    if (motor_running) {
+        if (abs(error) <= TOLERANCIA) {
+            detenerAutomatico();
+            return;
+        }
     }
 
     if (!motor_running) {
@@ -192,9 +230,9 @@ void loop() {
 
 
     //---------------------------------------------------------------------------
-    // MODO PID (solo funciona yendo hacia el sensor, motor_direction = -1)
+    // MODO PID (funciona en AMBAS direcciones)
     //---------------------------------------------------------------------------
-    if (pid_enabled && motor_direction == -1 && error > 0) {
+    if (pid_enabled && error > 0) {
 
       float dt = SAMPLE_TIME / 1000.0;
 
@@ -216,12 +254,17 @@ void loop() {
 
       last_error = error;
 
-      setMotorBackward((int)output);
+      // Aplicar PWM en la dirección correspondiente
+      if (motor_direction == -1) {
+        setMotorBackward((int)output);
+      } else if (motor_direction == 1) {
+        setMotorForward((int)output);
+      }
     }
 
 
     //---------------------------------------------------------------------------
-    // MODO SIN PID â€” PWM mÃ¡ximo en la direcciÃ³n establecida
+    // MODO SIN PID — PWM máximo
     //---------------------------------------------------------------------------
     else if (!pid_enabled && motor_running) {
       output = 255;
@@ -245,6 +288,15 @@ void setMotorForward(int speed) {
   digitalWrite(MOTOR_IN1, HIGH);
   digitalWrite(MOTOR_IN2, LOW);
   analogWrite(MOTOR_EN, speed);
+}
+
+void detenerAutomatico() {
+  motor_running = false;
+  pid_enabled = false;
+  motor_direction = 0;
+  stopMotor();
+  Serial.println("\n>>> PARO AUTOMÁTICO — SETPOINT ALCANZADO <<<");
+  printStatus();
 }
 
 void setMotorBackward(int speed) {
