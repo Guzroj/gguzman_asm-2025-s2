@@ -20,7 +20,7 @@ float Ki = 0.8;
 float Kd = 0.3;
 
 float setpoint_forward = 4.0;   // Setpoint para ir ADELANTE (lejos del sensor)
-float setpoint_backward = 52.0;   // Setpoint para ir ATRÁS (cerca del sensor)
+float setpoint_backward = 54.0;   // Setpoint para ir ATRÁS (cerca del sensor)
 float setpoint = 6.0;            // Setpoint activo actual
 
 float posicion_actual = 0;  
