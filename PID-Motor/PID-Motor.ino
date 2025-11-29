@@ -230,34 +230,43 @@ void loop() {
 
 
     //---------------------------------------------------------------------------
-    // MODO PID (funciona en AMBAS direcciones)
+    // MODO PID (usa la MAGNITUD del error, aunque sea negativo)
     //---------------------------------------------------------------------------
-    if (pid_enabled && error > 0) {
+    if (pid_enabled) {
 
       float dt = SAMPLE_TIME / 1000.0;
 
-      float P = Kp * error;
+      // Tomamos solo la magnitud del error
+      float e = error;
+      if (e < 0) e = -e;
 
-      integral += error * dt;
+      // --- PID ---
+      float P = Kp * e;
+
+      integral += e * dt;
       if (integral > INTEGRAL_MAX) integral = INTEGRAL_MAX;
-      if (integral < 0) integral = 0;
+      if (integral < 0)            integral = 0;
 
       float I = Ki * integral;
 
-      derivative = (error - last_error) / dt;
+      derivative = (e - last_error) / dt;
       float D = Kd * derivative;
 
       output = P + I + D;
 
-      if (output < 0) output = 0;
+      if (output < 0)       output = 0;
       if (output > PWM_MAX) output = PWM_MAX;
 
-      last_error = error;
+      // Guardamos la magnitud del error para la derivada
+      last_error = e;
 
-      // Aplicar PWM en la dirección correspondiente
+      // --- Aplicar PID según dirección ---
       if (motor_direction == -1) {
+        // ATRÁS (acercar al sensor)
         setMotorBackward((int)output);
-      } else if (motor_direction == 1) {
+      } 
+      else if (motor_direction == 1) {
+        // ADELANTE (alejar del sensor)
         setMotorForward((int)output);
       }
     }
