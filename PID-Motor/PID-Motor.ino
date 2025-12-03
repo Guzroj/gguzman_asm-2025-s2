@@ -14,10 +14,14 @@ const int BUTTON_PID      = 2;  // Activa/desactiva PID
 const int BUTTON_FORWARD  = 3;  // Motor adelante (acercar al sensor)
 const int BUTTON_BACKWARD = 4;  // Motor atrás (alejar del sensor)
 
-// PID
+// PID Original
 float Kp = 5.0;
 float Ki = 0.8;
 float Kd = 0.3;
+
+//float Kp = 12.0;
+//float Ki = 0.3; //Baja más para máxima estabilidad
+//float Kd = 4.0; //Frenado super brusco
 
 float setpoint_forward = 4.0;   // Setpoint para ir adelante (cerca del sensor)
 float setpoint_backward = 54.0;   // Setpoint para ir atrás (lejos del sensor)
