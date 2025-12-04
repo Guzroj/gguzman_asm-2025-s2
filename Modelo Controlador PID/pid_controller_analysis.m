@@ -4,8 +4,6 @@
 
 clc; clear; close all;
 
-pkg load control
-
 % ========================================
 % PARÁMETROS DEL CONTROLADOR PID
 % ========================================
@@ -28,10 +26,14 @@ fprintf('  Kd = %.4g\n', Kd);
 % C(s) = Kp + Ki/s + Kd*s
 % C(s) = (Kd*s^2 + Kp*s + Ki) / s
 
+% OPCIÓN 1: Usando tf con tiempo continuo explícito
 num_pid = [Kd, Kp, Ki];   % Kd*s^2 + Kp*s + Ki
 den_pid = [1, 0];          % s
+C = tf(num_pid, den_pid, 'TimeUnit', 'seconds');
 
-C = tf(num_pid, den_pid);
+% OPCIÓN 2 (ALTERNATIVA): Usando variable simbólica 's'
+% s = tf('s');
+% C = Kp + Ki/s + Kd*s;
 
 fprintf('\nFunción de transferencia del controlador PID:\n');
 fprintf('C(s) = Kp + Ki/s + Kd*s\n');
@@ -119,38 +121,59 @@ if ~isempty(ceros)
   end
 end
 
-
-
 fprintf('\n========================================\n');
 
 % ========================================
 % GRÁFICAS
 % ========================================
 
-% Figura 1: Diagrama de polos y ceros
+% Figura 1: Diagrama de polos y ceros (MANUAL - sin pzmap para evitar grid discreto)
 figure(1);
-pzmap(C);
-legend('off');
-title(sprintf('Diagrama de Polos y Ceros del Controlador PID\nKp=%.2f, Ki=%.2f, Kd=%.2f', Kp, Ki, Kd));
+clf;
+
+% Calcular límites
+xlim_val = max(abs([real(polos); real(ceros); 1])) * 1.5;
+ylim_val = max(abs([imag(polos); imag(ceros); 1])) * 1.5;
+
+% Crear figura
+hold on;
 grid on;
 axis equal;
 
-% Mejorar visualización
-xlim_val = max(abs([real(polos); real(ceros)])) * 1.5;
-if xlim_val == 0
-  xlim_val = 10;
+% Dibujar ejes
+plot([-xlim_val xlim_val], [0 0], 'k-', 'LineWidth', 1);  % Eje real
+plot([0 0], [-ylim_val ylim_val], 'k-', 'LineWidth', 1);  % Eje imaginario
+
+% Dibujar polos (x azul)
+if ~isempty(polos)
+  plot(real(polos), imag(polos), 'bx', 'MarkerSize', 12, 'LineWidth', 2);
 end
-ylim_val = max(abs([imag(polos); imag(ceros)])) * 1.5;
-if ylim_val == 0
-  ylim_val = 10;
+
+% Dibujar ceros (o rojo)
+if ~isempty(ceros)
+  plot(real(ceros), imag(ceros), 'ro', 'MarkerSize', 10, 'LineWidth', 2);
 end
+
+% Configurar ejes y etiquetas
 xlim([-xlim_val, xlim_val]);
 ylim([-ylim_val, ylim_val]);
+xlabel('Eje Real (segundos^{-1})');
+ylabel('Eje Imaginario (segundos^{-1})');
+title(sprintf('Diagrama de Polos y Ceros del Controlador PID (Tiempo Continuo)\nKp=%.2f, Ki=%.2f, Kd=%.2f', Kp, Ki, Kd));
 
-% Agregar líneas de referencia
-hold on;
-plot([0 0], ylim, 'k:', 'LineWidth', 0.5);  % Eje imaginario
-plot(xlim, [0 0], 'k:', 'LineWidth', 0.5);  % Eje real
+% Leyenda
+if ~isempty(polos) && ~isempty(ceros)
+  legend('Polos', 'Ceros', 'Location', 'best');
+elseif ~isempty(polos)
+  legend('Polos', 'Location', 'best');
+elseif ~isempty(ceros)
+  legend('Ceros', 'Location', 'best');
+end
+
+hold off;
+
+
+fprintf('\n¡Análisis completado!\n');
 
 
 
