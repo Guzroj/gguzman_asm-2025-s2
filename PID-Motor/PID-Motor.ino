@@ -82,6 +82,9 @@ void setup() {
   Serial.print("Setpoint ATRÁS: ");
   Serial.print(setpoint_backward);
   Serial.println(" cm");
+
+  // Cabezera CSV para exportar los datos fácilmente
+  Serial.println("time_ms,pwm,dist_cm");
 }
 
 void loop() {
@@ -227,6 +230,14 @@ void loop() {
     if (!motor_running) {
       stopMotor();
       printStatus();
+
+      // También imprimimos CSV aunque esté detenido (útil para tener la traza completa)
+      Serial.print(millis());
+      Serial.print(",");
+      Serial.print((int)output);
+      Serial.print(",");
+      Serial.println(posicion_actual);
+
       return;
     }
 
@@ -287,6 +298,13 @@ void loop() {
     }
 
     printStatus();
+
+    // --- Línea CSV: tiempo (ms), pwm (entero), distancia (cm) ---
+    Serial.print(millis());
+    Serial.print(",");
+    Serial.print((int)output);
+    Serial.print(",");
+    Serial.println(posicion_actual);
   }
 }
 
@@ -308,6 +326,13 @@ void detenerAutomatico() {
   stopMotor();
   Serial.println("\n>>> PARO AUTOMÁTICO — SETPOINT ALCANZADO <<<");
   printStatus();
+
+  // Imprime también la última línea CSV al detenerse
+  Serial.print(millis());
+  Serial.print(",");
+  Serial.print((int)output);
+  Serial.print(",");
+  Serial.println(posicion_actual);
 }
 
 void setMotorBackward(int speed) {
